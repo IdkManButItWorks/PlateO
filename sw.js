@@ -2,7 +2,7 @@
 // Keeps the app working offline: the page and its icons are cached on install,
 // and Google Fonts are cached the first time they load.
 // Bump VERSION whenever you want every installed copy to drop its old cache.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const APP_CACHE = 'flex-plate-app-' + VERSION;
 const FONT_CACHE = 'flex-plate-fonts-' + VERSION;
 

@@ -122,6 +122,23 @@
   .chip.sel-chip{cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;}
   .chip.sel-chip.on{background:var(--gold);color:#1E2A22;border:1px solid var(--gold);font-weight:700;}
   .chip.sel-chip.off{background:transparent;color:var(--coral);border:1px solid var(--coral);text-decoration:line-through;opacity:0.85;}
+  .chip.custom{border-style:solid;}
+  .chip .chip-x{margin-left:6px;padding:0 2px;font-weight:700;opacity:0.7;cursor:pointer;text-decoration:none;display:inline-block;}
+  .chip .chip-x:hover{opacity:1;}
+  .add-form{display:flex;gap:8px;margin-top:12px;}
+  .add-form input{
+    flex:1;min-width:0;font-family:'Space Mono',monospace;font-size:13px;
+    padding:8px 10px;border:1px solid var(--line);border-radius:7px;
+    background:var(--bg-card-alt);color:var(--ink);
+  }
+  .add-form input::placeholder{color:var(--ink-dim);}
+  .add-form button{
+    font-family:'Space Mono',monospace;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;
+    padding:8px 12px;border:1px solid var(--line);border-radius:7px;
+    background:transparent;color:var(--ink);cursor:pointer;
+  }
+  .add-form button:active{transform:scale(0.97);}
+  .add-msg{font-size:12.5px;color:var(--ink-dim);margin:6px 0 0;min-height:0;}
 
   .hl-toggle{
     display:block;width:100%;margin:0 0 12px;padding:10px 12px;
@@ -440,21 +457,36 @@
       <span class="bt-chev" aria-hidden="true"></span>
     </button>
     <div id="blocks-body" hidden>
-      <p class="section-note">Tap an ingredient once to highlight it, again to exclude it, and a third time to reset. Excluded items never show up in a shuffle.</p>
+      <p class="section-note">Tap an ingredient once to highlight it, again to exclude it, and a third time to reset. Excluded items never show up in a shuffle. Don’t see something? Type it in below a section to add your own (tap × to remove it).</p>
 
       <div class="cat-card">
         <div class="cat-head"><span class="dot" style="background:var(--slate)"></span><span class="cat-title">Protein</span></div>
         <div class="chip-row" id="chips-protein"></div>
+        <form class="add-form" onsubmit="addCustom(event, 'protein')">
+          <input type="text" id="add-protein" maxlength="40" placeholder="Add a protein…" aria-label="Add a protein not listed" autocomplete="off">
+          <button type="submit">Add</button>
+        </form>
+        <p class="add-msg" id="add-msg-protein" aria-live="polite"></p>
       </div>
 
       <div class="cat-card">
         <div class="cat-head"><span class="dot" style="background:var(--sage)"></span><span class="cat-title" id="veg-title">Vegetables</span></div>
         <div class="chip-row" id="chips-veg"></div>
+        <form class="add-form" onsubmit="addCustom(event, 'veg')">
+          <input type="text" id="add-veg" maxlength="40" placeholder="Add a vegetable or fruit…" aria-label="Add a vegetable or fruit not listed" autocomplete="off">
+          <button type="submit">Add</button>
+        </form>
+        <p class="add-msg" id="add-msg-veg" aria-live="polite"></p>
       </div>
 
       <div class="cat-card">
         <div class="cat-head"><span class="dot" style="background:var(--tan)"></span><span class="cat-title">Carb</span></div>
         <div class="chip-row" id="chips-carb"></div>
+        <form class="add-form" onsubmit="addCustom(event, 'carb')">
+          <input type="text" id="add-carb" maxlength="40" placeholder="Add a carb…" aria-label="Add a carb not listed" autocomplete="off">
+          <button type="submit">Add</button>
+        </form>
+        <p class="add-msg" id="add-msg-carb" aria-live="polite"></p>
       </div>
     </div>
 
@@ -644,7 +676,48 @@
     if (currentDiet === 'vegan' && DAIRY_EGG.includes(item)) return false;
     return true;
   }
-  function proteinsFor(meal){ return MEALS[meal].protein.filter(allowed); }
+  // Ingredients the user typed in, per category. They show up for every meal and skip the
+  // diet and budget filters (no cost data), since the user chose them on purpose.
+  const custom = { protein: [], veg: [], carb: [] };
+  try {
+    const saved = JSON.parse(localStorage.getItem('flexPlateCustom') || '{}');
+    Object.keys(custom).forEach(k => { if (Array.isArray(saved[k])) custom[k] = saved[k].filter(x => typeof x === 'string'); });
+  } catch(e) {}
+  const isCustom = (cat, item) => custom[cat].includes(item);
+  function saveCustom(){
+    try { localStorage.setItem('flexPlateCustom', JSON.stringify(custom)); } catch(e) {}
+  }
+  function listFor(meal, cat){
+    const base = MEALS[meal][cat].filter(allowed);
+    return base.concat(custom[cat].filter(c => !base.includes(c)));
+  }
+  function proteinsFor(meal){ return listFor(meal, 'protein'); }
+
+  function addCustom(e, cat){
+    e.preventDefault();
+    const input = document.getElementById('add-' + cat);
+    const msg = document.getElementById('add-msg-' + cat);
+    // Strip characters that would break the plate text or recipe search.
+    const item = input.value.replace(/[<>&"+]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!item) { msg.textContent = ''; return; }
+    if (listFor(currentMeal, cat).includes(item)) {
+      msg.textContent = '\u201c' + item + '\u201d is already in this list.';
+      return;
+    }
+    if (!custom[cat].includes(item)) custom[cat].push(item);
+    saveCustom();
+    input.value = '';
+    msg.textContent = 'Added \u201c' + item + '\u201d.';
+    renderChips('chips-' + cat, listFor(currentMeal, cat), cat);
+  }
+  function removeCustom(cat, item){
+    custom[cat] = custom[cat].filter(x => x !== item);
+    selected[cat].delete(item); excluded[cat].delete(item);
+    saveCustom();
+    renderChips('chips-' + cat, listFor(currentMeal, cat), cat);
+    updateBlocksSummary();
+    document.getElementById('add-msg-' + cat).textContent = 'Removed \u201c' + item + '\u201d.';
+  }
 
   function dietHides(t){
     return (t === 'meat' && currentDiet !== 'omni') ||
@@ -736,11 +809,21 @@
       const b = document.createElement('span');
       const paint = () => {
         const inc = selected[cat].has(i), exc = excluded[cat].has(i);
-        b.className = 'chip sel-chip' + (inc ? ' on' : exc ? ' off' : '');
-        b.setAttribute('aria-label', i + (inc ? ' (included)' : exc ? ' (excluded)' : ''));
+        b.className = 'chip sel-chip' + (mine ? ' custom' : '') + (inc ? ' on' : exc ? ' off' : '');
+        b.setAttribute('aria-label', i + (mine ? ' (added by you)' : '') + (inc ? ' (included)' : exc ? ' (excluded)' : ''));
       };
+      const mine = isCustom(cat, i);
       b.setAttribute('role', 'button');
       b.textContent = i;
+      if (mine) {
+        const x = document.createElement('span');
+        x.className = 'chip-x';
+        x.textContent = '\u00d7';
+        x.setAttribute('role', 'button');
+        x.setAttribute('aria-label', 'Remove ' + i);
+        x.onclick = ev => { ev.stopPropagation(); removeCustom(cat, i); };
+        b.appendChild(x);
+      }
       paint();
       // default -> highlighted -> excluded -> default
       b.onclick = () => {
@@ -770,8 +853,8 @@
       b.classList.toggle('active', b.dataset.meal === meal));
     const m = MEALS[meal];
     renderChips('chips-protein', proteinsFor(meal), 'protein');
-    renderChips('chips-veg', m.veg.filter(allowed), 'veg');
-    renderChips('chips-carb', m.carb.filter(allowed), 'carb');
+    renderChips('chips-veg', listFor(currentMeal, 'veg'), 'veg');
+    renderChips('chips-carb', listFor(currentMeal, 'carb'), 'carb');
     document.getElementById('veg-title').textContent = m.label;
     document.getElementById('prep-meal').textContent = { breakfast: 'breakfasts', lunch: 'lunches', dinner: 'dinners' }[meal];
     // clear any results built for a different meal
@@ -818,8 +901,8 @@
     const m = MEALS[currentMeal];
     const src = (cat, items) => pool(cat, items, useHighlights);
     const p = pick(src('protein', proteinsFor(currentMeal))),
-          v = pick(src('veg', m.veg.filter(allowed))),
-          c = pick(src('carb', m.carb.filter(allowed)));
+          v = pick(src('veg', listFor(currentMeal, 'veg'))),
+          c = pick(src('carb', listFor(currentMeal, 'carb')));
     lastPlate = v + ' + ' + p + ' + ' + c;
     lastPlateMeal = currentMeal;
     document.getElementById('result').innerHTML =
@@ -842,8 +925,8 @@
     const m = MEALS[currentMeal];
     const src = (cat, items) => pool(cat, items, useHighlights);
     const proteins = pickN(src('protein', proteinsFor(currentMeal)), 3);
-    const vegs = pickN(src('veg', m.veg.filter(allowed)), 3);
-    const carbs = pickN(src('carb', m.carb.filter(allowed)), 3);
+    const vegs = pickN(src('veg', listFor(currentMeal, 'veg')), 3);
+    const carbs = pickN(src('carb', listFor(currentMeal, 'carb')), 3);
     last3Meal = currentMeal;
     last3Meals = [0,1,2].map(idx => vegs[idx] + ' + ' + proteins[idx] + ' + ' + carbs[idx]);
     const rows = [1,2,3].map(i => {
@@ -871,8 +954,8 @@
       return {
         meal,
         p: pick(src('protein', proteinsFor(meal))),
-        v: pick(src('veg', m.veg.filter(allowed))),
-        c: pick(src('carb', m.carb.filter(allowed)))
+        v: pick(src('veg', listFor(meal, 'veg'))),
+        c: pick(src('carb', listFor(meal, 'carb')))
       };
     });
     lastDayMeals = plates.map(x => x.v + ' + ' + x.p + ' + ' + x.c);
